@@ -1,0 +1,8 @@
+# 保持 LF：运行时 JS 注入依赖逐字节稳定，Python 也统一 LF
+*.js   text eol=lf
+*.py   text eol=lf
+*.json text eol=lf
+*.md   text eol=lf
+
+# PowerShell 在 Windows 上用 CRLF（且需 UTF-8 BOM，已在文件中保留）
+*.ps1  text eol=crlf
