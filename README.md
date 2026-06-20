@@ -39,21 +39,43 @@
 
 ## 使用方法
 
-### 一键安装（推荐）
+### 第一步：获取项目
 
-1. 右键 `claude-zh-cn.ps1` 旁边的空白处打开终端，或直接双击运行
-   （脚本会自动请求管理员权限）。
-   也可在普通 PowerShell 里执行：
+任选一种方式，下载到本机任意目录（路径无所谓，脚本按自身位置定位）：
 
-   ```powershell
-   powershell -NoProfile -ExecutionPolicy Bypass -File .\claude-zh-cn.ps1
-   ```
+- **用 git 克隆**
 
-2. 在菜单选择 **`[1]` 安装 / 更新中文补丁**。脚本会：
-   生成译文 → 关闭 Claude → 备份原文件 → 应用补丁。
+  ```powershell
+  git clone https://github.com/lik-eng/claude-desktop-win-zh-cn.git
+  cd claude-desktop-win-zh-cn
+  ```
 
-3. 重新打开 Claude Desktop。若界面仍是英文：
-   **设置 → 语言 →“中文（简体）”**。
+- **或下载 ZIP**：点本仓库右上角绿色 **Code → Download ZIP**，解压后进入该文件夹。
+
+### 第二步：一键安装（推荐）
+
+进入项目文件夹后，在 **普通 PowerShell** 里运行（脚本会自动请求管理员权限）：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\claude-zh-cn.ps1
+```
+
+然后在菜单选择 **`[1]` 安装 / 更新中文补丁**。脚本会自动：
+生成译文（联网）→ 关闭 Claude → 备份原文件 → 接管权限并应用补丁。
+
+> 也可直接双击 `claude-zh-cn.ps1` 运行。
+
+完成后重新打开 Claude Desktop。若界面仍是英文：
+**设置 → 语言 →“中文（简体）”**。
+
+#### 想完全无人值守？（一条命令搞定）
+
+在项目文件夹里粘贴下面这条，它会**直接安装并在装好后自动重启 Claude**（仍只弹一次提权框）。
+命令使用当前所在目录，**不含任何写死的路径**，谁 clone 下来都能用：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1; Start-Process "shell:AppsFolder\$((Get-StartApps | Where-Object { $_.Name -like '*Claude*' } | Select-Object -First 1).AppID)"
+```
 
 ### 卸载（恢复官方原状）
 
@@ -141,6 +163,11 @@ A：分两种：① 参考仓库尚未覆盖的新键（回退英文，属正常
 **Q：某个图标不见了 / 点击没反应？**
 A：可见文本修复运行时**只改可见文本、不改内部标识**，正常不会导致此问题。若出现，
 请先 `[2]` 卸载确认是否本补丁所致，并反馈。
+
+**Q：运行 .ps1 报“无法加载，因为在此系统上禁止运行脚本”？**
+A：用本文档给的带 `-ExecutionPolicy Bypass` 的命令运行即可。若是**下载的 ZIP** 解压后被
+Windows 标记为“来自 Internet”而拦截，在项目文件夹的 PowerShell 里跑一次：
+`Get-ChildItem -Recurse | Unblock-File`，再重新安装。
 
 **Q：会被 Claude 更新覆盖吗？**
 A：会。每次更新后重跑安装即可。
