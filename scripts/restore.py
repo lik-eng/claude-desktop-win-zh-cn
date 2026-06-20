@@ -105,7 +105,8 @@ def reset_locale() -> None:
             data = json.loads(cfg.read_text(encoding="utf-8-sig"))
             if "locale" in data:
                 del data["locale"]
-                cfg.write_text(json.dumps(data, ensure_ascii=False, indent=4), encoding="utf-8")
+                # 保持与 Claude 原文件一致的 UTF-8 BOM。
+                cfg.write_text(json.dumps(data, ensure_ascii=False, indent=4), encoding="utf-8-sig")
                 common.ok(f"已清除 {cfg.parent.name}\\config.json 的 locale")
         except Exception as e:
             common.warn(f"处理 {cfg} 失败：{e}")
@@ -127,9 +128,18 @@ def main() -> int:
         root = common.find_install_root(args.root)
     except RuntimeError as e:
         common.err(str(e))
+        common.err("可用 --root 手动指定安装包根目录；若版本结构有变，请在 issue 附上版本号。")
         return 2
     paths = common.Paths(root)
     common.info(f"安装目录：{root}")
+
+    # 与安装一致：WindowsApps 下文件归 TrustedInstaller，仅管理员仍可能写不动。
+    # 先接管 resources 写权限，否则还原备份 / 删除 zh-CN / 兜底清白名单都可能
+    # PermissionError。
+    if common.grant_write_access(paths.resources):
+        common.ok("已获取 resources 目录写权限。")
+    else:
+        common.warn("获取写权限可能未完全成功，将继续尝试。")
 
     # 1) 优先用备份还原 JS
     restore_from_backup(paths)

@@ -6,3 +6,6 @@
 
 # PowerShell 在 Windows 上用 CRLF（且需 UTF-8 BOM，已在文件中保留）
 *.ps1  text eol=crlf
+
+# 无扩展名的 LICENSE 统一 LF
+LICENSE text eol=lf

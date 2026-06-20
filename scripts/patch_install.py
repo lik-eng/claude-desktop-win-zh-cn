@@ -131,7 +131,9 @@ def set_locale(dry: bool) -> None:
                 continue
             data["locale"] = common.TARGET_LOCALE
             cfg.parent.mkdir(parents=True, exist_ok=True)
-            cfg.write_text(json.dumps(data, ensure_ascii=False, indent=4), encoding="utf-8")
+            # Claude 自己写的 config.json 带 UTF-8 BOM；用 utf-8-sig 写回以保持一致，
+            # 读取也用 utf-8-sig，BOM 不丢。
+            cfg.write_text(json.dumps(data, ensure_ascii=False, indent=4), encoding="utf-8-sig")
             common.ok(f"已设置 {cfg.parent.name}\\config.json locale=zh-CN")
         except Exception as e:
             common.warn(f"写 {cfg} 失败：{e}")
@@ -158,6 +160,7 @@ def main() -> int:
         root = common.find_install_root(args.root)
     except RuntimeError as e:
         common.err(str(e))
+        common.err("可用 --root 手动指定安装包根目录；若版本结构有变，请在 issue 附上版本号。")
         return 2
     paths = common.Paths(root)
     common.info(f"安装目录：{root}")

@@ -22,8 +22,8 @@
 | 注入“可见文本修复运行时”，把 i18n 漏掉的硬编码英文运行时替换为中文 | 前端入口 chunk |
 | 设置默认语言为 `zh-CN` | `%APPDATA%\Claude-3p\config.json`、`%APPDATA%\Claude\config.json` |
 
-> 说明：约 4796 条前端文案是本版新增、参考仓库尚无对应译文的键，会**回退显示英文**，
-> 不影响功能；后续可随参考仓库更新再补。
+> 说明：其余约三成（约 4800 余条）前端文案是本版新增、参考仓库尚无对应译文的键，
+> 会**回退显示英文**，不影响功能；后续可随参考仓库更新或机翻补全再补。
 
 ---
 
@@ -178,5 +178,13 @@ A：会。每次更新后重跑安装即可。
 
 - 修改 WindowsApps 内的应用文件属第三方改动，非官方支持，理论上有随版本更新失效的风险。
 - 本补丁所有写操作均先备份到 `%LOCALAPPDATA%\Claude-zh-CN-backup`，并提供一键还原。
-- 译文版权与原始翻译归属上游项目
-  [`Jyy1529/claude-desktop_win-zh_cn`](https://github.com/Jyy1529/claude-desktop_win-zh_cn)。
+- “Claude”“Claude Desktop” 是 Anthropic 的商标；本项目为非官方第三方本地化补丁，
+  与 Anthropic 无隶属或背书关系。
+
+---
+
+## 许可
+
+- 本项目代码与脚本以 **MIT** 许可发布，详见 [LICENSE](LICENSE)。
+- 中文译文复用自上游 [`Jyy1529/claude-desktop_win-zh_cn`](https://github.com/Jyy1529/claude-desktop_win-zh_cn)（同为 MIT）。
+  其许可与版权声明保留在 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)，特此致谢。

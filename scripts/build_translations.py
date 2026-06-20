@@ -111,39 +111,41 @@ def fetch_ref(name: str, url: str, offline: bool) -> dict:
     return data
 
 
+def _has_cjk(s: str) -> bool:
+    return isinstance(s, str) and any("一" <= c <= "鿿" for c in s)
+
+
 def align(installed_en: dict, ref_zh: dict) -> tuple[dict, int, int]:
     """
-    按安装版的键集对齐：有参考中文则用，否则回退英文。
-    返回 (结果, 译为中文的数量, 回退英文的数量)。
+    按安装版的键集对齐：参考仓库有该键就用其中文，否则回退英文。
+
+    返回 (结果, 含中文的数量, 回退英文的数量)。
+    “含中文”按译文实际含 CJK 字符判定，与 README 引用的覆盖率口径一致
+    （专有名词等参考值仍是英文的，计入回退，不虚高覆盖率）。
     """
     out: dict[str, str] = {}
-    translated = fallback = 0
+    zh = fallback = 0
     for k, en in installed_en.items():
-        if k in ref_zh and ref_zh[k] != en:
-            out[k] = ref_zh[k]
-            translated += 1
-        elif k in ref_zh:  # 参考值与英文相同（专有名词等），算覆盖但非“变化”
-            out[k] = ref_zh[k]
-            translated += 0  # 不计入“变化”，但也不回退
-            fallback += 0
+        val = ref_zh.get(k, en)
+        out[k] = val
+        if _has_cjk(val):
+            zh += 1
         else:
-            out[k] = en
             fallback += 1
-    return out, translated, fallback
+    return out, zh, fallback
 
 
 def build_dynamic(installed_en: dict) -> tuple[dict, int, int]:
     out: dict[str, str] = {}
-    translated = fallback = 0
+    zh = fallback = 0
     for k, en in installed_en.items():
-        zh = DYNAMIC_ZH.get(en.strip())
-        if zh:
-            out[k] = zh
-            translated += 1
+        val = DYNAMIC_ZH.get(en.strip(), en)
+        out[k] = val
+        if _has_cjk(val):
+            zh += 1
         else:
-            out[k] = en
             fallback += 1
-    return out, translated, fallback
+    return out, zh, fallback
 
 
 def main() -> int:
@@ -190,7 +192,7 @@ def main() -> int:
     def pct(n, total):
         return f"{(100 * n / total):.1f}%" if total else "—"
 
-    print("\n-- 覆盖率 --")
+    print("\n-- 覆盖率（含中文 / 共计）--")
     print(f"  前端 frontend : 共 {len(fe_en):>5} 键 | 中文 {fe_t:>5} ({pct(fe_t, len(fe_en))}) | 回退英文 {fe_f}")
     print(f"  外壳 desktop  : 共 {len(sh_en):>5} 键 | 中文 {sh_t:>5} ({pct(sh_t, len(sh_en))}) | 回退英文 {sh_f}")
     print(f"  动态 dynamic  : 共 {len(dy_en):>5} 键 | 中文 {dy_t:>5} ({pct(dy_t, len(dy_en))}) | 回退英文 {dy_f}")
