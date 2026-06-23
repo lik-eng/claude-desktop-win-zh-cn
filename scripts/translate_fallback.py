@@ -102,10 +102,14 @@ def _placeholders(s: str) -> set:
 
 
 def _is_garbled(s: str) -> bool:
-    """检测“CJK 字符夹在英文字母中间”的损坏译文（如 al低ed / Under撰写r）。
-    发生在模型把英文单词的某个子串（如 "low"→"低"）做词内替换时。这类译文必须拒绝。
-    允许的：英文与中文正常相邻（如 "...的 Claude Desktop" 不夹在字母中间）。"""
-    return bool(re.search(r"[A-Za-z]+[一-鿿]+[A-Za-z]+", s))
+    """检测“CJK 字符夹在【小写】英文字母中间”的损坏译文（如 al低ed / al低list /
+    fol低ing / Under撰写r / trade关s）。发生在模型把英文词的某子串（如 "low"→"低"）
+    做词内替换、把一个连续英文词拦腰切断时。
+
+    用 [a-z]+CJK+[a-z]（两侧都小写）做判据，既能拦住真损坏，又不会误杀
+    “中文词后接大写专有名词”的合法译文（如 “应用OAuth”、“带入Cowork” ——
+    专有名词是大写词首，两侧不会同时是小写连续字母）。"""
+    return bool(re.search(r"[a-z]+[一-鿿]+[a-z]+", s))
 
 
 def load_patch() -> dict:
@@ -137,25 +141,41 @@ def collect_pending() -> dict:
     return by_value
 
 
-def call_api(client, model: str, batch: dict[str, str]) -> dict[str, str]:
-    """调一次 Messages API，把 {id: english} 翻成 {id: chinese}。"""
+def call_api(client, model: str, batch: dict[str, str], retries: int = 3) -> dict[str, str]:
+    """调一次 Messages API，把 {id: english} 翻成 {id: chinese}。失败自动重试。"""
     prompt = (
         "把下面 JSON 的每个 value 翻成简体中文，占位符与 id 保持不变，"
         "只输出结果 JSON：\n" + json.dumps(batch, ensure_ascii=False)
     )
-    msg = client.messages.create(
-        model=model,
-        max_tokens=4096,
-        system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    text = "".join(b.text for b in msg.content if getattr(b, "type", "") == "text")
-    # 解析返回的 JSON（容错：剥掉前后可能的 ```/说明文字）
-    text = text.strip()
-    if text.startswith("```"):
-        text = re.sub(r"^```(?:json)?\s*", "", text)
-        text = re.sub(r"\s*```$", "", text)
-    return json.loads(text)
+    last_err = None
+    for attempt in range(retries):
+        try:
+            msg = client.messages.create(
+                model=model,
+                max_tokens=8192,
+                system=SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": prompt}],
+                timeout=90,
+            )
+            text = "".join(b.text for b in msg.content if getattr(b, "type", "") == "text")
+            text = text.strip()
+            if text.startswith("```"):
+                text = re.sub(r"^```(?:json)?\s*", "", text)
+                text = re.sub(r"\s*```$", "", text)
+            return json.loads(text)
+        except Exception as e:
+            last_err = e
+            time.sleep(1 + attempt)  # 指数退避：1s,2s,3s
+    raise last_err if last_err else RuntimeError("API 调用失败")
+
+
+def call_one(client, model: str, value: str) -> str | None:
+    """单条翻译（整批失败时降级用）。返回中文译文或 None。"""
+    try:
+        resp = call_api(client, model, {"t0": value})
+        return resp.get("t0")
+    except Exception:
+        return None
 
 
 def merge_patch() -> int:
@@ -254,9 +274,12 @@ def main() -> int:
         try:
             resp = call_api(client, args.model, batch)
         except Exception as e:
-            common.warn(f"第 {i}-{i+len(batch_items)} 批请求失败：{e}（跳过，稍后重跑）")
-            time.sleep(2)
-            continue
+            common.warn(f"第 {i}-{i+len(batch_items)} 批失败：{e} → 降级单条逐翻")
+            resp = {}
+            for j, (en, _) in enumerate(batch_items):
+                zh = call_one(client, args.model, en)
+                if zh:
+                    resp[f"t{j}"] = zh
         for j, (en, keys) in enumerate(batch_items):
             zh = resp.get(f"t{j}")
             if not zh or not _has_cjk(zh):
