@@ -8,6 +8,9 @@ venv/
 # 译文构建缓存（联网拉取后自动生成，可重建，不入库）
 resources/_cache/
 
+# 翻译中间工作目录（机翻补丁、待译 key 列表，可由脚本重新生成，不入库）
+resources/_work/
+
 # 编辑器 / 系统
 .vscode/
 .idea/
