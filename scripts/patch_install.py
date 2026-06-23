@@ -139,19 +139,133 @@ def set_locale(dry: bool) -> None:
             common.warn(f"写 {cfg} 失败：{e}")
 
 
+def _coverage_one(path: Path) -> tuple[int, int] | None:
+    """返回 (含中文数, 总数)；文件不在返回 None。供状态报告用。"""
+    if not path.exists():
+        return None
+    try:
+        d = common.load_json(path)
+    except Exception:
+        return None
+    total = len(d)
+    cjk = sum(1 for v in d.values() if isinstance(v, str) and any("一" <= c <= "鿿" for c in v))
+    return cjk, total
+
+
+def report_status(paths: common.Paths) -> int:
+    """智能状态：补丁完整性 + 覆盖率 + 版本漂移检测。只读，不改任何文件。"""
+    print("== 补丁状态 ==")
+    common.info(f"安装目录：{paths.install_root}")
+    common.info(f"备份目录：{common.BACKUP_ROOT}")
+
+    # 1) 译文文件在否 + 覆盖率
+    print()
+    print("  -- 译文文件 --")
+    for label, p in [
+        ("前端", paths.frontend_zh),
+        ("外壳", paths.shell_zh),
+        ("动态", paths.dynamic_zh),
+    ]:
+        cov = _coverage_one(p)
+        if cov is None:
+            common.warn(f"  {label}：未安装（{p.name} 不存在）")
+        else:
+            cjk, total = cov
+            common.ok(f"  {label}：{p.name}  已安装（{cjk}/{total} 含中文 = {100*cjk/total:.1f}%）")
+
+    # 2) 白名单是否含 zh-CN
+    print()
+    print("  -- 语言白名单 --")
+    found = common.find_whitelist_file(paths)
+    if not found:
+        common.err("  未能定位语言白名单数组（KH）—— 可能 Claude 已更新到不兼容版本。")
+    else:
+        js, array_text = found
+        if '"zh-CN"' in array_text:
+            common.ok(f"  白名单已包含 zh-CN（{js.name}）。")
+        else:
+            common.warn(f"  白名单未包含 zh-CN（{js.name}）—— 补丁未装或已随更新失效。")
+
+    # 3) 运行时是否已注入
+    print()
+    print("  -- 可见文本修复运行时 --")
+    entry = common.find_entry_chunk(paths)
+    if not entry:
+        common.err("  未能定位入口 chunk —— 可能 Claude 已更新到不兼容版本。")
+    else:
+        text = common.read_js(entry)
+        if common.RUNTIME_SENTINEL in text:
+            common.ok(f"  运行时已注入（{entry.name}）。")
+        else:
+            common.warn(f"  运行时未注入（{entry.name}）。")
+
+    # 4) 版本漂移检测：备份里记录了当初被改的 chunk 文件名；
+    #    若当前的白名单/入口 chunk 文件名与备份第一次记录的不同，
+    #    说明 Claude 更新过、chunk hash 变了、补丁已失效需重装。
+    print()
+    print("  -- 版本漂移检测 --")
+    backup_res = common.BACKUP_ROOT / "resources"
+    drifted: list[str] = []
+    if backup_res.exists():
+        # 备份文件按相对 resources 的路径镜像。找 ion-dist/assets 下被备份过的 chunk。
+        import glob
+        backup_js = []
+        for p in backup_res.rglob("*.js"):
+            backup_js.append(p)
+        import re as _re
+        # 当初备份的 chunk 文件名（如 cec18ad9a-BPckh7Ws.js）如果与当前的不一样 → 漂移
+        backup_names = {p.name for p in backup_js}
+        current_names = {js.name for js in paths.asset_js_files()}
+        # 只看那些被备份过、说明当时被改过的文件：用“白名单/入口”两类特征快速比对
+        backed_but_changed: list[str] = []
+        for bn in backup_names:
+            # 如果备份里这个文件名在当前 assets 里已不存在（hash 变了）→ 失效
+            if bn not in current_names:
+                drifted.append(bn)
+    if drifted:
+        common.warn(
+            f"  检测到 {len(drifted)} 个当初被补丁修改过的 chunk 在当前安装目录已不存在："
+        )
+        for n in drifted[:5]:
+            common.warn(f"    - {n}")
+        common.err(
+            "  → Claude 似乎已更新到新版本（chunk 文件名 hash 变化）。补丁已失效，"
+            "请重跑安装（菜单 [1]）以重新定位并应用到新版本。"
+        )
+    else:
+        common.ok("  未检测到版本漂移：被备份的 chunk 仍与当前安装一致。")
+
+    print()
+    common.ok("状态报告完成。")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="应用 Claude Desktop 中文补丁")
     ap.add_argument("--root", help="Claude 安装包根目录（默认自动探测）")
     ap.add_argument("--dry-run", action="store_true", help="只校验，不写文件")
+    ap.add_argument("--status", action="store_true", help="只查状态：补丁完整性+覆盖率+版本漂移，不改任何文件")
     ap.add_argument("--no-runtime", action="store_true", help="不注入可见文本修复运行时")
     args = ap.parse_args()
 
-    print("== 安装 Claude Desktop 中文补丁 ==")
+    # --status 与 --dry-run 都是只读，不需要管理员；安装才需要。
+    readonly = args.dry_run or args.status
 
-    if not args.dry_run and not common.is_admin():
+    if not readonly and not common.is_admin():
         common.err("需要管理员权限才能修改 WindowsApps 目录。")
         common.err("请用管理员身份运行 claude-zh-cn.ps1，或在管理员 PowerShell 中执行。")
         return 13
+
+    if args.status:
+        # status 对资源文件无强依赖（不在也照样报告“未安装”），跳过 ensure_resources
+        try:
+            root = common.find_install_root(args.root)
+        except RuntimeError as e:
+            common.err(str(e))
+            return 2
+        return report_status(common.Paths(root))
+
+    print("== 安装 Claude Desktop 中文补丁 ==")
 
     if not ensure_resources():
         return 2

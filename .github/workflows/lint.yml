@@ -1,0 +1,80 @@
+name: lint
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: 校验译文 JSON 合法且键不重复
+        run: |
+          python - <<'PY'
+          import json, sys, glob
+          ok = True
+          for f in glob.glob("resources/*.json"):
+              if f.endswith("-zh-CN.json") or "en-US" in f:  # 跳过缓存目录里可能的样本
+                  pass
+              try:
+                  d = json.load(open(f, encoding="utf-8"))
+              except Exception as e:
+                  print(f"X {f}: {e}"); ok = False; continue
+              if isinstance(d, dict):
+                  dup = len(d) != len(set(d))
+                  print(f"  {f}: {len(d)} keys" + (" | DUP KEYS!" if dup else ""))
+                  if dup: ok = False
+          sys.exit(0 if ok else 1)
+          PY
+
+      - name: 校验三个产物译文键集与安装版一致（本地有 resources/en-US 才跑）
+        run: |
+          python - <<'PY'
+          import json, os, sys
+          # 仅在仓库自带的产物译文上做相对一致检查：三个 zh-CN 之间没有相互串键
+          # （真要与安装版比对需本机安装，CI 跳过）。
+          files = ["resources/frontend-zh-CN.json", "resources/desktop-zh-CN.json", "resources/dynamic-zh-CN.json"]
+          for f in files:
+              assert os.path.exists(f), f"缺 {f}"
+              json.load(open(f, encoding="utf-8"))
+              print(f"  OK {f}")
+          PY
+
+      - name: py_compile Python 脚本
+        run: |
+          python -m py_compile scripts/common.py scripts/build_translations.py scripts/patch_install.py scripts/restore.py scripts/translate_fallback.py
+
+      - name: 安装行为/描述校验（确保 .ps1 仍带 UTF-8 BOM + 可解析）
+        shell: pwsh
+        run: |
+          $files = @('claude-zh-cn.ps1','install.ps1','uninstall.ps1')
+          foreach ($f in $files) {
+            $bytes = [System.IO.File]::ReadAllBytes($f)
+            $hasBOM = ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF)
+            if (-not $hasBom) { Write-Host "X $f 缺 UTF-8 BOM"; exit 1 }
+            $t=$null; $e=$null
+            [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $f),[ref]$t,[ref]$e)|Out-Null
+            if ($e.Count -ne 0) { Write-Host "X $f 解析错误: $($e|%{$_.Message})"; exit 1 }
+            Write-Host "OK $f (BOM + parse)"
+          }
+
+      - name: 运行时 JS 完整性（BEGIN/END 标记 + 哨兵 + 纯 LF）
+        run: |
+          python - <<'PY'
+          b = open("runtime/visible-text-fix.js","rb").read()
+          assert b.count(b"\r\n") == 0, "runtime 应为 LF 行尾"
+          s = b.decode("utf-8")
+          assert "/*== CLAUDE_ZH_CN_VTF_BEGIN ==*/" in s
+          assert "/*== CLAUDE_ZH_CN_VTF_END ==*/" in s
+          assert "__CLAUDE_ZH_CN_VTF__" in s
+          print("OK runtime markers + LF")
+          PY

@@ -157,8 +157,8 @@ function Do-Uninstall {
 function Do-Status {
     Write-Host ''
     Write-Host '== 状态 ==' -ForegroundColor Cyan
-    # dry-run 会打印安装目录、白名单文件、入口 chunk 等定位信息
-    $null = Invoke-PyScript 'patch_install.py' @('--dry-run')
+    # --status：补丁完整性 + 覆盖率 + 版本漂移检测（只读，不需管理员）
+    $null = Invoke-PyScript 'patch_install.py' @('--status')
 }
 
 function Show-Menu {
