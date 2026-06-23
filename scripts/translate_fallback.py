@@ -61,9 +61,15 @@ SYSTEM_PROMPT = (
     "2. 占位符逐字保留，绝不改动、不翻译、不增删：ICU 语法如 "
     "`{count, plural, one {# message} other {# messages}}` 只翻译大括号"
     "里的英文短语（# 锚和外壳一字不动）；`{name}`、`<tag>`、`</tag>` 原样保留。\n"
-    "3. 专业术语遵循术语表。代码、URL、文件路径、API 名、产品名保持英文。\n"
-    "4. 保持语气与正式度，简洁，符合中文 UI 习惯。\n"
-    "5. 输入是 JSON 对象 {id: 英文}，你输出同结构的 JSON {id: 中文}，"
+    "3. 严禁词内子串替换：不得把英文单词的一部分翻成中文，例如绝对不能把 "
+    "\"allow\"→\"al低ed\"、\"allowlist\"→\"al低list\"、\"following\"→\"fol低ing\"、"
+    "\"writer\"→\"撰写r\"。要让整个英文单词变成完整中文词，或当专有名词保留整词。\n"
+    "4. 产品名/技术名保持英文整词：Claude、Claude Desktop、Claude Code、Anthropic、"
+    "Slack、GitHub、AWS、OAuth、SAML、SCIM、MCP、API、IP 等。\n"
+    "5. 专业术语遵循术语表。代码、URL、文件路径、API 名保持英文。\n"
+    "6. 保持语气与正式度，简洁，符合中文 UI 习惯。整句要么完整翻译，要么保留整词，"
+    "不要半句翻译半句英文。\n"
+    "7. 输入是 JSON 对象 {id: 英文}，你输出同结构的 JSON {id: 中文}，"
     "id 一字不变，缺的 id 也要原样保留并填中文。\n"
     f"术语表：{json.dumps(GLOSSARY, ensure_ascii=False)}"
 )
@@ -74,11 +80,32 @@ def _has_cjk(s: str) -> bool:
 
 
 def _placeholders(s: str) -> set:
-    ph = set(re.findall(r"\{[^{}]*\}", s))
-    ph |= set(re.findall(r"</?[a-zA-Z][^>]*?>", s))
+    """占位符快照：ICU `{...}`（含嵌套）、HTML 标签、复数锚 `#`。
+    用于译前/译后一致性校验：只要“变量名集合 + 标签集合 + #”一致即可，
+    不要求外层 ICU 文案逐字相同——否则嵌套 ICU 内的英文被合法翻译后会被误拒。
+    因此这里提取的是：变量变量名（如 count、period）、单个 `{...}` 顶层的
+    type 关键字不算，只看出现的 ICU 变量名、HTML 标签名、# 是否一致。"""
+    ph = set()
+    # 变量名：匹配 {name,...} 或 {name} 的 name（支持嵌套里再出现的）
+    for m in re.finditer(r"\{([A-Za-z_][A-Za-z0-9_]*)\s*[,}]", s):
+        ph.add("{" + m.group(1) + "}")
+    # 裸变量插入 {name}（无逗号、非 ICU）
+    for m in re.finditer(r"\{([A-Za-z_][A-Za-z0-9_]*)\}", s):
+        ph.add("{" + m.group(1) + "}")
+    # HTML 标签名
+    for m in re.finditer(r"</?([a-zA-Z][a-zA-Z0-9]*)\b[^>]*?>", s):
+        ph.add("<" + m.group(1) + ">")
+    # 复数锚 / 数字锚
     if "#" in s:
         ph.add("#")
     return ph
+
+
+def _is_garbled(s: str) -> bool:
+    """检测“CJK 字符夹在英文字母中间”的损坏译文（如 al低ed / Under撰写r）。
+    发生在模型把英文单词的某个子串（如 "low"→"低"）做词内替换时。这类译文必须拒绝。
+    允许的：英文与中文正常相邻（如 "...的 Claude Desktop" 不夹在字母中间）。"""
+    return bool(re.search(r"[A-Za-z]+[一-鿿]+[A-Za-z]+", s))
 
 
 def load_patch() -> dict:
@@ -151,6 +178,10 @@ def merge_patch() -> int:
             if _placeholders(v) != _placeholders(zh):
                 rej += 1
                 common.warn(f"占位符不一致，跳过：{k}")
+                continue
+            if _is_garbled(zh):
+                rej += 1
+                common.warn(f"损坏译文（CJK 夹字母间），跳过：{k}")
                 continue
             data[k] = zh
             hit += 1
@@ -232,6 +263,10 @@ def main() -> int:
                 continue
             if _placeholders(en) != _placeholders(zh):
                 rejected += 1
+                continue
+            if _is_garbled(zh):
+                rejected += 1
+                common.warn(f"损坏译文（CJK 夹字母间），回退：{en[:40]!r} → {zh[:40]!r}")
                 continue
             patch[en] = zh  # 按英文原文 key 存，复用
             done += 1
