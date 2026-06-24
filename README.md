@@ -191,7 +191,16 @@ Windows 标记为“来自 Internet”而拦截，在项目文件夹的 PowerShe
 `Get-ChildItem -Recurse | Unblock-File`，再重新安装。
 
 **Q：会被 Claude 更新覆盖吗？**
-A：会。每次更新后重跑安装即可。
+A：会。每次更新后重跑安装即可。用菜单 `[3]` 状态里的“版本漂移检测”可确认是否已失效。
+
+---
+
+## 贡献
+
+- 反馈 bug / 提需求：开 [issue](https://github.com/lik-eng/claude-desktop-win-zh-cn/issues/new/choose)，按模板填（附版本号、`[3]` 状态输出最好）。
+- 提 PR：仓库有 [PR 模板](.github/pull_request_template.md)，含改动类型勾选与自测清单。
+- CI（[`.github/workflows/lint.yml`](.github/workflows/lint.yml)）会对每个 PR/push 自动跑：
+  译文 JSON 合法且键不重复、全部 Python `py_compile`、`.ps1` 用 pwsh 解析且确认带 UTF-8 BOM、运行时 JS 的 BEGIN/END 标记 + 哨兵 + 纯 LF —— 任一失败 CI 即红。
 
 ---
 
