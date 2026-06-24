@@ -33,7 +33,8 @@
 - 已安装 Claude Desktop（Store 版或 web 登录安装版）
 - **Python 3**（[下载](https://www.python.org/downloads/)，安装时勾选 *Add to PATH*）
 - **管理员权限**（WindowsApps 目录受系统保护，安装/卸载需要）
-- 安装译文时需联网（从参考仓库拉取译文，会缓存到 `resources\_cache`）
+- 仓库已预生成含中文的 `resources/*.json`，**克隆即可装、无需联网**；
+  只有当你想重新从上游对齐刷新译文时才需联网（`build_translations.py`，缓存到 `resources\_cache`）
 
 ---
 
@@ -61,7 +62,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\claude-zh-cn.ps1
 ```
 
 然后在菜单选择 **`[1]` 安装 / 更新中文补丁**。脚本会自动：
-生成译文（联网）→ 关闭 Claude → 备份原文件 → 接管权限并应用补丁。
+（用仓库已预生成的译文，无需联网）关闭 Claude → 备份原文件 → 接管权限并应用补丁。
 
 > 也可直接双击 `claude-zh-cn.ps1` 运行。
 
@@ -91,8 +92,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\uninstall.ps1
 
 ### 查看状态
 
-菜单选择 **`[3]`**：显示探测到的安装目录、白名单文件、入口 chunk 等定位信息
-（这其实是一次 `--dry-run`，不会改任何文件）。
+菜单选择 **`[3]`**：一次只读的智能体检，报告（不会改任何文件、也不需要管理员）：
+
+- 三个 `zh-CN.json` 译文文件是否就位、各自**中文覆盖率**；
+- 语言白名单是否已含 `zh-CN`、可见文本修复运行时是否已注入；
+- **版本漂移检测**：比对当初被备份的 chunk 文件名与当前安装，若被备份的 chunk
+  已不在当前安装目录，说明 Claude 已更新到新版本、**补丁已失效**，会提示你重装。
+
+等价命令：`python scripts\patch_install.py --status`
 
 ---
 
@@ -100,6 +107,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\uninstall.ps1
 
 Claude Desktop 自动更新后，程序目录会换成新版本号、前端 chunk 的文件名（hash）也会变，
 **补丁会失效**。更新后请**再次运行安装**（菜单 `[1]`）即可。
+
+想确认是否已失效：跑菜单 `[3]` 状态，看到“版本漂移检测”那段提示“chunk 已不存在、
+请重装”，就说明需要重跑安装（参见上文「查看状态」）。
 
 ---
 
@@ -113,11 +123,16 @@ python scripts\build_translations.py --offline   # 用缓存，不联网
 # 仅打补丁（需管理员）
 python scripts\patch_install.py
 python scripts\patch_install.py --dry-run        # 只校验定位，不改文件
+python scripts\patch_install.py --status          # 智能状态体检（只读，不需管理员）
 python scripts\patch_install.py --no-runtime     # 不注入可见文本修复运行时
 
 # 仅还原（需管理员）
 python scripts\restore.py
 python scripts\restore.py --reset-locale         # 同时清除 locale
+
+# 用 Claude API 重新机翻补齐仍回退英文的键（进阶；需 ANTHROPIC_API_KEY）
+python scripts\translate_fallback.py --base-url https://api.example.com
+python scripts\translate_fallback.py --merge     # 把译好的人翻补丁合并回 resources/*.json
 
 # 指定安装目录（自动探测失败时）
 python scripts\patch_install.py --root "C:\Program Files\WindowsApps\Claude_x.x.x.x_x64__xxxx"
@@ -130,19 +145,24 @@ python scripts\patch_install.py --root "C:\Program Files\WindowsApps\Claude_x.x.
 ```
 .
 ├── README.md
+├── LICENSE / THIRD-PARTY-NOTICES.md
 ├── claude-zh-cn.ps1          # 交互菜单（自动提权）
 ├── install.ps1 / uninstall.ps1
 ├── scripts/
-│   ├── common.py             # 安装路径探测 + JS 特征定位 + 备份工具
+│   ├── common.py             # 安装路径探测 + JS 特征定位 + 备份/权限工具
 │   ├── build_translations.py # 拉取并对齐译文，生成 resources/*.json
-│   ├── patch_install.py      # 拷贝译文 / 改白名单 / 注入运行时 / 设 locale
-│   └── restore.py            # 还原与清理
+│   ├── patch_install.py      # 拷贝译文 / 改白名单 / 注入运行时 / 设 locale / --status 体检
+│   ├── restore.py            # 还原与清理
+│   └── translate_fallback.py # 用 Claude API 重新机翻回退键（进阶）
 ├── runtime/
 │   └── visible-text-fix.js   # 可见文本修复运行时（MutationObserver）
-└── resources/                # 由 build_translations.py 生成
-    ├── frontend-zh-CN.json
-    ├── desktop-zh-CN.json
-    └── dynamic-zh-CN.json
+├── resources/                # 译文产物（已预生成含中文，克隆即可用）
+│   ├── frontend-zh-CN.json
+│   ├── desktop-zh-CN.json
+│   └── dynamic-zh-CN.json
+└── .github/
+    ├── workflows/lint.yml        # CI：校验 JSON/Python/.ps1/运行时标记
+    └── ISSUE_TEMPLATE/, pull_request_template.md
 ```
 
 备份目录：`%LOCALAPPDATA%\Claude-zh-CN-backup`（卸载时据此还原）。
@@ -171,7 +191,16 @@ Windows 标记为“来自 Internet”而拦截，在项目文件夹的 PowerShe
 `Get-ChildItem -Recurse | Unblock-File`，再重新安装。
 
 **Q：会被 Claude 更新覆盖吗？**
-A：会。每次更新后重跑安装即可。
+A：会。每次更新后重跑安装即可。用菜单 `[3]` 状态里的“版本漂移检测”可确认是否已失效。
+
+---
+
+## 贡献
+
+- 反馈 bug / 提需求：开 [issue](https://github.com/lik-eng/claude-desktop-win-zh-cn/issues/new/choose)，按模板填（附版本号、`[3]` 状态输出最好）。
+- 提 PR：仓库有 [PR 模板](.github/pull_request_template.md)，含改动类型勾选与自测清单。
+- CI（[`.github/workflows/lint.yml`](.github/workflows/lint.yml)）会对每个 PR/push 自动跑：
+  译文 JSON 合法且键不重复、全部 Python `py_compile`、`.ps1` 用 pwsh 解析且确认带 UTF-8 BOM、运行时 JS 的 BEGIN/END 标记 + 哨兵 + 纯 LF —— 任一失败 CI 即红。
 
 ---
 

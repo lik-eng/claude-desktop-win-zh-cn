@@ -1,0 +1,71 @@
+name: Bug report
+description: 报告补丁使用中遇到的问题
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈！请尽量填全下列信息，便于定位。
+        本项目**非 Anthropic 官方**，仅做本地化补丁。
+
+  - type: input
+    id: version
+    attributes:
+      label: Claude Desktop 版本
+      placeholder: "例：1.14271.0.0（Microsoft Store / WindowsApps 版）"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install_type
+    attributes:
+      label: 安装方式
+      options:
+        - Microsoft Store / WindowsApps
+        - 本地登录安装版 (LOCALAPPDATA\AnthropicClaude)
+        - 其它 / 不确定
+    validations:
+      required: true
+
+  - type: input
+    id: python
+    attributes:
+      label: Python 版本
+      placeholder: "例：python --version 输出"
+    validations:
+      required: false
+
+  - type: textarea
+    id: what_happened
+    attributes:
+      label: 出了什么问题
+      description: 越具体越好。是装不上、界面乱了、图标消失、还是译文错？
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: 复现步骤
+      placeholder: |
+        1. 在项目目录跑 powershell -NoProfile -ExecutionPolicy Bypass -File .\claude-zh-cn.ps1
+        2. 选 [1] 安装
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: status_output
+    attributes:
+      label: 状态命令输出（强烈建议附上）
+      description: 跑 `powershell -NoProfile -ExecutionPolicy Bypass -File .\claude-zh-cn.ps1 -Action status`，把输出贴这里。里面会列出探测到的安装目录、白名单文件、入口 chunk 等。
+      render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 其它日志/截图
+    validations:
+      required: false
