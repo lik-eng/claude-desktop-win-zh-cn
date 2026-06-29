@@ -112,6 +112,52 @@ def _is_garbled(s: str) -> bool:
     return bool(re.search(r"[a-z]+[一-鿿]+[a-z]+", s))
 
 
+# 外置“强制翻译”名单（escape hatch）：硬编码 keep_english 规则误判某串、值得翻译时，
+# 把它的英文值写进 resources/_work/force_translate.json（数组），下次 collect_pending 即不排除。
+FORCE_FILE = WORK / "force_translate.json"
+
+
+def _force_set() -> set:
+    if FORCE_FILE.exists():
+        try:
+            return set(json.loads(FORCE_FILE.read_text(encoding="utf-8")))
+        except Exception:
+            return set()
+    return set()
+
+
+def _keep_english(v: str) -> bool:
+    """该串是否应整体保留英文、不发给 API 翻译。
+    默认排除：
+      1. 纯符号/无字母；
+      2. 单 token 技术标识（[A-Za-z][A-Za-z0-9._/-]*）；
+      3. “占位符/符号主导”的串：剥掉所有 {...} 占位符块和 HTML 标签后，若剩下的
+         不再含 4+ 字母的“真词”，就保留（如 '#{number}'、'${amount}'、'+{count}'、
+         '({change, number, ::sign-always})'、'#F5F5F5'、'{ms} ms'）。翻译这类
+         数据格式占位毫无增益、反而易破坏占位符。
+      4. 域名/路径/邮箱形态：如 '*.corp.example.com'、'user@example.com'、
+         '/usr/local/bin/aws'。
+    外置 force_translate.json 里的值会覆盖本规则（强制纳入待译）。"""
+    s = v.strip()
+    if not any(c.isalpha() for c in s):
+        return True
+    if re.fullmatch(r"[A-Za-z][A-Za-z0-9._/-]*", s):
+        return True
+    # 域名/路径/邮箱形态：无空格、含 @ 或 *. 或 /xxx
+    if " " not in s and (re.search(r"@", s) or re.search(r"\*\.", s) or re.search(r"/[a-z]", s)):
+        return True
+    # 剥占位符块 {...}（含嵌套）与 HTML 标签后，看是否还有 4+ 字母真词
+    stripped = s
+    prev = None
+    while prev != stripped:
+        prev = stripped
+        stripped = re.sub(r"\{[^{}]*\}", "", stripped)
+    stripped = re.sub(r"</?[a-zA-Z][^>]*?>", "", stripped)
+    if not re.search(r"[A-Za-z]{4,}", stripped):
+        return True
+    return False
+
+
 def load_patch() -> dict:
     if PATCH_FILE.exists():
         return json.loads(PATCH_FILE.read_text(encoding="utf-8"))
@@ -127,8 +173,9 @@ def save_patch(p: dict) -> None:
 
 
 def collect_pending() -> dict:
-    """收集所有回退键 {uniq_value: [keys...]}；只保留补丁里还没译好的 value。"""
+    """收集所有回退键 {uniq_value: [keys...]}；只保留补丁里还没译好、且不属保留英文的 value。"""
     patch = load_patch()
+    force = _force_set()
     by_value: dict[str, list[str]] = {}
     for fname, target in TARGETS.items():
         data = json.loads(target.read_text(encoding="utf-8"))
@@ -137,6 +184,10 @@ def collect_pending() -> dict:
                 continue
             if v in patch and _has_cjk(patch[v]):
                 continue  # 已有译文，跳过
+            if v in force:
+                pass  # 强制翻译名单覆盖 keep_english：纳入待译
+            elif _keep_english(v):
+                continue  # 单 token 技术名/纯符号 → 不翻，省额度
             by_value.setdefault(v, []).append(k)  # 同英文复用一条译文
     return by_value
 
